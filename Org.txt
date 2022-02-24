@@ -1,0 +1,168 @@
+//SAME DONOR FILE FROM OTHER PROJECTS
+
+Reqs:
+-----
+Write a simple [columnar](https://en.wikipedia.org/wiki/Column-oriented_DBMS) database in Rust which:
+
+1. Supports REST API
+2. Stores data in any columnar format.
+3. Supports Import of CSV files into a table. REST path: POST `/import/:table`
+4. [https://www.kaggle.com/hanselhansel/donorschoose?select=Donors.csv](https://www.kaggle.com/hanselhansel/donorschoose?select=Donors.csv) should be used as a test data source to load
+5. Supports COUNT aggregation function, GROUP BY for any set of columns, ORDER BY, and simple equals filter. REST path: GET `/query?sql=`
+6. Queries to use for tests
+    
+    ```
+    SELECT
+      `donors`."Donor State" `donors__donor_state`,
+      count(*) `donors__count`FROM
+      test.donors AS `donors`GROUP BY
+      1
+    ORDER BY
+      2 DESC
+    LIMIT
+      10000
+    ```
+    
+    ```
+    SELECT
+      count(*) `donors__count`FROM
+      test.donors AS `donors`WHERE
+      (`donors`."Donor City" = "San Francisco")
+    LIMIT
+      10000
+    ```
+    
+
+Any libraries can be used to build this test project with an exception of finished embedded database implementations.
+
+Refs:
+-----
+Hi!
+- Must it be in Rust? I suppose yes, but please confirm
+You are right. It should be in Rust language.
+- I will assume there exists a library in RUST which allows for it? Or should I implement this parsing myself.
+
+It’s better to use a library for parsing instead of implementing a new one. 
+https://github.com/sqlparser-rs/sqlparser-rs
+
+For columnar structures, you can use:
+https://github.com/apache/arrow
+https://github.com/jorgecarleitao/arrow2
+Or any another libraries that you want. Any libraries can be used to build this test project with the exception of finished embedded database implementations. For example, you cannot use DataFusion.
+
+- Do I need to work with something like LevelDB or anything on-disk store
+on disk store, for example you can use parquet format or CSV + meta information.
+
+- Do I need to implement indexes?..
+You can use row groups and statistics to speed up some queries, but it’s not required to implement indexes. You can think about optimizations such as filter push down or projection push down in the end of the task, if you have enough time.
+
+Tuts:
+-----
+https://doc.rust-lang.org/rust-by-example/mod/split.html
+https://doc.rust-lang.org/book/ch02-00-guessing-game-tutorial.html
+
+
+Org:
+----
+Table Machine T1 --> Multiple Column Machines (TC1, TC2,..) --> Multiple Row Group Machines (TR1, TR2, ..).
+Table: 
+//Bloom Filter (row, column, value) exists? (Memory) See https://en.wikipedia.org/wiki/Bloom_filter
+//Bloom Filter: m ~ 1,000,000 x 32 in test and 32,000,000 x 32 in production.
+//Column Machines.
+
+Column: 
+--TODOFurther: row, column --> value --> valueID(column) --> DisjointSetsUnioun.
+//Bloom Filter (row, value) exists? (Memory)
+//Bloom Filter(row, value) --> size = 1/num_columns of the above.
+
+AllValues in SortOrder (disk)
+List<Row Group Machines>
+Traduce[c1=v1] --> RowGroupMachineID.
+
+Row Group Machine:
+Prefix: <c_i = v_i>
+
+Split dimension1 = column c1 (determin cumva optim, dupa a fi cat mai putine coloane in split1) --> Raw Group Machine.
+Split dimension2 = column c2 (--, for the outstanding, etc.) --> Raw Group Machine.
+
+min_split_value = RawGroupDetails_desired_machine_size.
+max_split_value = None.
+
+Pe Split_1 am asa:
+ - split column c1
+ - split value c1=v1 [--> Raw Group Machine_x, physical machine_y], count; 
+ - split value c1=v2 [-->..], count.
+ - Bloom Filter(split values) daca este light-column.
+ - List<split values> daca este heavy-column.
+ - split value, daca este full-column.
+
+//Pe versiunea Demo, am doar split dupa cea mai promitatoare coloana, c1 (cea unde am cele mai multe noi Raw Group Machines resultate).
+
+Am terminat coloanele? Inseamna ca toate elementele mele de aici sunt egale.
+ -> Am mai multe elemente decat RawGroupDetails_max_machine_size? Impart ce ramane in astfel de masini, RGD_desired_machine_size each.
+
+Am ajuns la sub 1 x RawGroupDetails_desired_machine_size?
+ -> Ma transform intr-o RGD_machine (am referinta la).
+
+//Pe versiunea DEMO, am maxim 2 Split-uri non-full: si tin cut-off value-ul pentru ele (adica fac arbore echilibrat, avand in vedere ca stiu datele in avans):
+//Split1_light_cutoff_value: ce e inainte pe c1 ca valoare merge in Split1_light restul merge in Split2_light. Aleg cut-off-ul ca sa fie la mijloc.
+
+-- Row Groups1: c1=v1, c2=v2, c3=v3, restul variaza (includ toate variatiile)
+-- Row Groups2: c1=v1, c2=v3, c3=v1 etc.
+
+//Bloom Filter(column1_value, column2_value, etc.) pentru coloanele care nu apar deja.
+
+Traduce[c1=v1]--> List<RowDetailsMachineID/RowGroupMachine>.
+Meta[c1=v1] --> TotalRowCount, TotalMachineCount, TotalMachineGroupCount
+
+Machine_RGD(c1=v1) = MashineRGD_hash(v1).
+
+Row Groups Details (pot fi mai multe d'astea pe o singura masina Row Group Machine):
+- Parent Column, Parent Column Machine
+- Parent Row Group Machine, v1/hash(v1) valid for me, is hash machine sau is actual machine.
+- for column c1=v1 si eventual (c_x = v_x, c_y = v_y):
+//HashTable/Bloom over c1 (value, row) --> true/false, exists or not. Universal Perfect Hashing.
+//Hash-ul de mai sus se refera exclusiv la valorile care nu apar in antentul de obligatorii.
+
+Hashtable[column_x] --> values_for_column_x,count_val which I have (with count).
+
+Reprezentarea propriu-zisa:
+Value: List<rowIDs>.
+
+
+Query --> Filter(f1 = v1, f2=v2,...), GroupBy(c1, c2, ..), Select: Count(*).
+
+Query Machine:
+q = (f1=v1, f2=v2, .. , fk=vk, g1, g2,..,gl, s=DESC).
+
+==> q1=(f1=v1, f2=2, .., fk=vk,s) ==> SortedList<s_value, count> (where count>0).
+//Pe versiunea DEMO, in loc de q1 folosesc Bloom filters peste (s=v_s, f1=v1, ...) si parcurg in ordine v_s-urile.
+==> q2=(f0=s_val_0, f1=v1, ....).
+
+//NO: 1. Row Generator: Walks Table and emits each row for which MasterBloom does not filter it out.
+
+1. QueryManager --> q --> to first RawGroupMachine.
+2. RawGroupMachine_fi has fi which is NOT in filters and I am not done with them yet? Requery downstream to all other machines.
+3. RowGroupMachine_fi(vi) -paralel-> RowDetailsMachine_fi=vi_x
+4a. RowGroup/DetailsMachine_fi=vi_x: values <f2, .., fk> exclude my range ==> response: Count=0 for me.
+    => Respone: Empty;
+4b. RowGroup/DetailsMachine_fi=vi_x: values <f2,...,fk> are all in my range ==> response: GroupBy(All) for me!
+    => Response: {<s=v_1,count(s=v_1)>}=the collections of {s}-es for which I have rows, and the count.
+    => Response2 (i know I have rows) ==> A: Done with filters and groupings? => Just my Count. B: No? => Drill further down on all machines.
+4c. RowDetailsMachine_f1=v1_x: I have a header which does not sufficiently restrict <f2,..fk>, so I may have Some(All)>=0 for me.
+4c1. RDM_fi=vi_x --> apply BloomFilter_c2(f2=v2)=True AND BloomFilter_c3(f3=v3) AND .. --> e plauzibil sa am valori de interes.
+    => Nu? Response: Empty;
+4c2. RDM_fi=vi_x --else--> compute <{s=v_1, count(s_v1)}> din lista Hashtable_s[v_x]=count_x.
+    --else-it_1 =>Response_it_1. Compute si filtreaza si agrega dupa groupingul respectiv, parcurgand toate randurile.
+
+SSD. OrderBy Column is a "heavy column" has few distinct values.
+ITD de viitor. In loc de values, sa lucrez cu Hash(values), si/sau cu valueID.
+ITD2 de viitor. Bloom filters in loc de simple value lookup.
+
+
+//Actual Impl.
+
+1. QueryManager --> q --> MasterSorterMachine(q) [
+2. MasterSorter --> Get Bloom filters for (s, f1 f2 f3 f4), (--, g1), (--, g1, g2), and column values for (s, g1, .. gn).
+2. MasterSorter --> foreach(s_val in s_col_values) 
+

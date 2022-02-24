@@ -1,0 +1,115 @@
+RowGroupMachine rootRGM;
+
+
+InitializeTable(string csvFile)
+{
+ RowGroupMachine RGM1 = new RowGroupMachine(EmptyFilter, csvFile).
+ RGM1.Init();
+ rootRGM = RGM1;
+}
+
+RowGroupMachine.Init(setupData)
+{
+ //Initialize Machine Name, download csvfile, etc.
+ 
+ Scan input file and, for each row:
+  -> Extract Dimension Values and Count for each Dimension. So generate RGM1_Dim[i]: "v1, count1; v2, count2; ...". Sort by v1.
+  -> ComputeInMemory BloomFilter for outstanding dimensions, for each mask, and store to disk as bloom_machinename_mask.bloom.
+  
+ if(doneWithAllColumns(setupData.prefix_filter))
+ {
+  this.RDMachine = new RowDetailsMachine(prefix_filter, csvFile, doneWithAllColumns: true);
+  this.RDMachine.Init();
+  return;
+ }
+
+ if(setupData.RowCount <= RowDetailsMachine.DesiredSize)
+ {
+  this.RDMachine = new RowDetailsMachine(prefix_filter, csvFile, doneWithAllColumns: false);
+  this.RDMachine.Init();
+ }
+  
+ Do the greedy to get the best dimension to split on: Just compute how many elements remain after all initial vi's are used to fill full machines.
+ List<SplitData> splits = DoSplit();
+ SplitInputFileBySplitData(splits);
+ foreach(var split in splits)
+ {
+  var RGM = new RowGroupMachine(this.prefix_filter + split.filter, split.csvFile);
+  this.MachineList.Add(RGM);
+  this.Val2Machine[split.filter] = RGM;
+  if(this.splitCutoff == null && split.IsLightSplit)
+	this.lastSplitCutoff = split.cutoffValueInclusive;
+  RGM.Init();
+ }
+}
+
+MakeQuery(q)
+{
+ long countSoFar = 0;
+ Result myResults;
+ Walk(var sRow = Walker(RGMroot.dimension_file[q.s], EndToStart: q.DESC==true))
+ {
+  var q1Results = rootRGM.DoQuery(q);
+  myResultsFile.AppendAsync(q1Results.OutputFile, maxRows: q.OutstandingLIMIT);
+  q.OutstandingLIMIT -= q1Results.Count;
+  if(q.OutstandingLIMIT <= 0)
+   break;
+ }
+ myResults.WaitAllDone();
+ return myResults;
+}
+
+RowGroupMachine.DoQuery(q)
+{
+ Assert(q is compatible with RGM.prefix_filter);
+ 
+ if(q is not done with filters)
+ {
+  if(!CheckBloomFilters(q.Filters))
+	return Result.FromEmptyResult();
+	 
+  if(RGM.splitDimension is in filters)
+  {
+    nextMachine = RGM.GetMachine(q.FilterValue[RGM.SplitDimension]);
+	return nextMachine.DoQuery();
+  }
+ }
+ 
+ if(q is done with both filters and groupings)
+ {
+  return Result.FromAllRowsValid(this);
+ }
+ 
+ var Result = Result.FromEmptyResult();
+ 
+ if(this.Val2Machine.Count == 0) //No more splits
+ {
+   Result = this.RDMachine.DoQuery(q, AmDoneWithFilters, AmDoneWithGroups);
+   return Result;
+ }
+ 
+  foreach(child_machine in this.Val2Machine)
+  {
+    var childResult = child_machine.DoQuery(q);
+	Result.Append(childResult, maxRows: q.OutstandingLIMIT);
+  }
+  Result.Aggregate(); //May not be required, in which case Append can be just semantic, keeping a pointer to all "chunks" on all machines.
+}
+
+
+
+RowDetailsMachine.Init(setupData)
+{
+}
+
+
+
+RowDetailsMachine.DoQuery(q, setupData)
+{
+ var qResult = Result.FromAllRowsValid(this as RowDetailsMachine);
+ if(!setupData.DoneWithFilters)
+ {
+   q1Result.WalkAllRowsAndValidateEachOneAgainstFilters(q.Filters);
+ }
+ return qResult;
+}

@@ -1,0 +1,16 @@
+[package]
+name = "cubedb"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+rand = "0.8.0"
+arrow = "7.0.0"
+arrow2 = "0.9.0"
+parquet = "7.0.0"
+rayon = { version = "1", default-features = false }
+sqlparser = "0.13.0"
+
+nickel = "0.11.0"
